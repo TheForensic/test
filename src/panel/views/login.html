@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoBridgeBot — Login</title>
+  <link rel="stylesheet" href="/panel/style.css">
+  <style>body{display:flex;min-height:100vh;align-items:center;justify-content:center;background:#0f172a;color:#e2e8f0} .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:24px;max-width:420px;width:90%} input{width:100%;padding:10px 12px;margin:8px 0;border-radius:8px;border:1px solid #374151;background:#0b1220;color:#e2e8f0} button{width:100%;padding:10px 12px;margin-top:12px;border-radius:8px;border:0;background:#2563eb;color:#fff;font-weight:600} .err{color:#f87171;margin-top:8px}</style>
+</head>
+<body>
+  <div class="card">
+    <h2>Sign in</h2>
+    <form id="f">
+      <input name="username" placeholder="Username" autocomplete="username" required>
+      <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button type="submit">Login</button>
+      <div id="err" class="err"></div>
+    </form>
+  </div>
+  <script>
+  document.getElementById('f').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const body = { username: form.username.value, password: form.password.value };
+    const res = await fetch('/auth/login', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) });
+    const j = await res.json();
+    if (j.ok) { location.href = '/panel/'; } else { document.getElementById('err').textContent = 'Invalid credentials or locked. Try again.'; }
+  });
+  </script>
+</body>
+</html>
+

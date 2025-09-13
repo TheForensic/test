@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+INSTALL_DIR="/opt/AutoBridgeBot"
+ENV_FILE="${INSTALL_DIR}/.env"
+SERVICE_NAME="autobridgebot"
+
+get_val(){ grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -n1 | cut -d= -f2-; }
+require_env(){ local v=$(get_val "$1"); if [[ -z "${v:-}" ]]; then echo "Missing $1 in $ENV_FILE" >&2; exit 1; fi; echo "$v"; }
+pub_ip(){ curl -4fsSL ifconfig.me || hostname -I 2>/dev/null | awk '{print $1}'; }
+
+status(){
+  echo "[systemd]"; systemctl is-active "$SERVICE_NAME" || true
+  local port=$(require_env PORT)
+  local host=$(get_val BIND_HOST); host=${host:-0.0.0.0}
+  local ip=$(pub_ip)
+  echo "[urls]"
+  echo " health: http://${ip}:${port}/health"
+  echo " panel:  http://${ip}:${port}/panel"
+  echo " run:    curl -X POST http://${ip}:${port}/run"
+  echo "[health]"
+  curl -fsSL "http://${ip}:${port}/health" || true; echo
+}
+
+run_now(){ local ip=$(pub_ip); local port=$(require_env PORT); curl -fsSL -X POST "http://${ip}:${port}/run"; echo; }
+
+change_schedule(){
+  local ip=$(pub_ip); local port=$(require_env PORT)
+  echo "1) Daily at time (HH:MM)"
+  echo "2) Every N hours"
+  echo "3) Disable internal cron"
+  read -r -p "Choice: " c
+  if [[ "$c" == "1" ]]; then
+    read -r -p "HH:MM: " hhmm
+    if [[ ! "$hhmm" =~ ^([0-2][0-9]):([0-5][0-9])$ ]]; then echo "Invalid time"; return; fi
+    local hh=${BASH_REMATCH[1]}; local mm=${BASH_REMATCH[2]}
+    curl -fsSL -X POST "http://${ip}:${port}/config" -H 'content-type: application/json' -d "{\"CRON_SCHEDULE\":\"$mm $hh * * *\",\"INTERVAL_HOURS\":\"\"}"; echo
+  elif [[ "$c" == "2" ]]; then
+    read -r -p "Every N hours: " n
+    if ! [[ "$n" =~ ^[0-9]+$ ]] || [[ "$n" -lt 1 ]]; then echo "Invalid hours"; return; fi
+    curl -fsSL -X POST "http://${ip}:${port}/config" -H 'content-type: application/json' -d "{\"CRON_SCHEDULE\":\"\",\"INTERVAL_HOURS\":$n}"; echo
+  else
+    curl -fsSL -X POST "http://${ip}:${port}/config" -H 'content-type: application/json' -d '{"DISABLE_INTERNAL_CRON":true}'; echo
+  fi
+}
+
+edit_secrets(){
+  local ip=$(pub_ip); local port=$(require_env PORT)
+  read -r -p "TELEGRAM_BOT_TOKEN: " t
+  read -r -p "TELEGRAM_CHAT_ID: " c
+  curl -fsSL -X POST "http://${ip}:${port}/secrets" -H 'content-type: application/json' -d "{\"TELEGRAM_BOT_TOKEN\":\"$t\",\"TELEGRAM_CHAT_ID\":\"$c\"}"; echo
+}
+
+update_bot(){ sudo bash "$INSTALL_DIR/scripts/update.sh"; }
+
+uninstall(){
+  systemctl stop "$SERVICE_NAME" || true
+  systemctl disable "$SERVICE_NAME" || true
+  rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+  systemctl daemon-reload
+  read -r -p "Delete $INSTALL_DIR? [y/N]: " ans; ans=${ans:-N}
+  if [[ "$ans" =~ ^[Yy]$ ]]; then rm -rf "$INSTALL_DIR"; fi
+  rm -f /usr/local/bin/atb-cli
+  echo "Uninstalled."
+}
+
+show_info(){ local ip=$(pub_ip); local port=$(require_env PORT); echo "Panel: http://${ip}:${port}/panel/"; echo "User: $(get_val ADMIN_USER || echo admin)"; echo "Pass: (see $ENV_FILE)"; }
+
+while true; do
+  echo "=== AutoBridgeBot CLI ==="
+  echo "1) Show status"
+  echo "2) Run now"
+  echo "3) Change schedule"
+  echo "4) Edit secrets"
+  echo "5) Update bot"
+  echo "6) Uninstall"
+  echo "7) Show control panel URL & credentials"
+  echo "q) Quit"
+  read -r -p "> " ans
+  case "$ans" in
+    1) status;;
+    2) run_now;;
+    3) change_schedule;;
+    4) edit_secrets;;
+    5) update_bot;;
+    6) uninstall; exit 0;;
+    7) show_info;;
+    q|Q) exit 0;;
+  esac
+done
+if [[ -f "$INSTALL_DIR/scripts/menu.sh" ]]; then
+  # shellcheck source=/dev/null
+  . "$INSTALL_DIR/scripts/menu.sh"
+fi
